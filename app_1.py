@@ -4,10 +4,16 @@ import tensorflow as tf
 import pandas as pd
 import pickle
 
-# Load the trained model
-model = tf.keras.models.load_model('model_1.h5')
+# ---------------- LOAD MODEL (CACHED) ---------------- #
 
-# Load the encoders and scaler
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model('model_1.h5')
+
+model = load_model()
+
+# ---------------- LOAD PREPROCESSING OBJECTS ---------------- #
+
 with open('scaler_1.pkl', 'rb') as f:
     scaler = pickle.load(f)
 
@@ -19,9 +25,9 @@ with open('label_encoder_gender_1.pkl', 'rb') as f:
 
 # ---------------- STREAMLIT UI ---------------- #
 
-st.title('Customer Churn Prediction')
+st.title('💳 Customer Churn Prediction')
 
-# User input
+# Inputs
 geography = st.selectbox('Geography', one_hot_encoder_geography.categories_[0])
 gender = st.selectbox('Gender', gender_label_encoder.classes_)
 age = st.slider('Age', 18, 70)
@@ -38,7 +44,7 @@ is_active_member = st.selectbox('Is Active Member', [0, 1])
 # Encode Gender
 gender_encoded = gender_label_encoder.transform([gender])[0]
 
-# Create base input dataframe
+# Base dataframe
 input_df = pd.DataFrame({
     'CreditScore': [credit_score],
     'Age': [age],
@@ -51,19 +57,29 @@ input_df = pd.DataFrame({
     'IsActiveMember': [is_active_member]
 })
 
-# One-hot encode Geography
-geo_encoded = one_hot_encoder_geography.transform([[geography]]).toarray()
+# ---------------- ONE HOT ENCODING (FIXED) ---------------- #
+
+geo_input_df = pd.DataFrame({'Geography': [geography]})
+geo_encoded = one_hot_encoder_geography.transform(geo_input_df).toarray()
 
 geo_columns = one_hot_encoder_geography.get_feature_names_out(['Geography'])
 geo_encoded_df = pd.DataFrame(geo_encoded, columns=geo_columns)
 
-# Combine all features
+# Combine
 input_df = pd.concat([input_df, geo_encoded_df], axis=1)
 
-# Ensure correct column order (VERY IMPORTANT)
+# ---------------- ENSURE CORRECT COLUMN ORDER ---------------- #
+
+# Add missing columns (if any)
+for col in scaler.feature_names_in_:
+    if col not in input_df.columns:
+        input_df[col] = 0
+
+# Reorder columns
 input_df = input_df[scaler.feature_names_in_]
 
-# Scale the data
+# ---------------- SCALING ---------------- #
+
 input_scaled = scaler.transform(input_df)
 
 # ---------------- PREDICTION ---------------- #
@@ -71,9 +87,13 @@ input_scaled = scaler.transform(input_df)
 prediction = model.predict(input_scaled)
 prediction_prob = prediction[0][0]
 
-st.write(f"Churn Probability: {prediction_prob:.2f}")
+# ---------------- OUTPUT ---------------- #
+
+st.subheader("Prediction Result")
+
+st.write(f"Churn Probability: **{prediction_prob:.2f}**")
 
 if prediction_prob > 0.5:
-    st.error(f"The customer is likely to churn ❌ (Probability: {prediction_prob:.2f})")
+    st.error(f"⚠️ The customer is likely to churn (Probability: {prediction_prob:.2f})")
 else:
-    st.success(f"The customer is not likely to churn ✅ (Probability: {prediction_prob:.2f})")
+    st.success(f"✅ The customer is not likely to churn (Probability: {prediction_prob:.2f})")
